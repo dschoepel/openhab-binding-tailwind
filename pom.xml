@@ -7,12 +7,40 @@
   <parent>
     <groupId>org.openhab.addons.bundles</groupId>
     <artifactId>org.openhab.addons.reactor.bundles</artifactId>
-    <version>4.2.0-SNAPSHOT</version>
+    <version>4.2.3</version>
+    <relativePath/>
   </parent>
 
   <artifactId>org.openhab.binding.tailwind</artifactId>
+  <version>4.2.3</version>
 
   <name>openHAB Add-ons :: Bundles :: TailWind Binding</name>
+
+  <properties>
+    <!-- Standalone build: the parent normally finds these files in the openhab-addons checkout -->
+    <basedirRoot>${project.basedir}</basedirRoot>
+  </properties>
+
+  <!-- The openHAB parent POM and core artifacts are not on Maven Central -->
+  <repositories>
+    <repository>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <id>openhab-release</id>
+      <url>https://openhab.jfrog.io/artifactory/libs-release</url>
+    </repository>
+  </repositories>
+
+  <pluginRepositories>
+    <pluginRepository>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <id>openhab-release</id>
+      <url>https://openhab.jfrog.io/artifactory/libs-release</url>
+    </pluginRepository>
+  </pluginRepositories>
 
   <dependencies>
     <dependency>
@@ -21,5 +49,21 @@
       <version>20240303</version>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <!-- Looks up the openhab-addons reactor folder, which a standalone build doesn't have; basedirRoot is set above instead -->
+      <plugin>
+        <groupId>org.commonjava.maven.plugins</groupId>
+        <artifactId>directory-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>directories</id>
+            <phase>none</phase>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 
 </project>
