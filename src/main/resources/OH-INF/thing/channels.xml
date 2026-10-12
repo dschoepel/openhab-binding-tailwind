@@ -59,6 +59,14 @@
 		<item-type>String</item-type>
 		<label>Firmware Version</label>
 		<description>Firmware version number</description>
+		<state readOnly="true"/>
+	</channel-type>
+
+	<channel-type id="serverMonitor" advanced="true">
+		<item-type>Switch</item-type>
+		<label>Server Connection Monitoring</label>
+		<description>When ON, the controller reboots itself if it loses its connection to the TailWind cloud server. Turn OFF
+			to use the controller on a network without internet access. Requires firmware 10.61 or later.</description>
 	</channel-type>
 
 	<channel-type id="supportCommand" advanced="true">

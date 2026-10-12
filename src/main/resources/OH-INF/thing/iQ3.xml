@@ -17,6 +17,10 @@
 			<!-- -->
 		</channel-groups>
 
+		<properties>
+			<property name="thingTypeVersion">1</property>
+		</properties>
+
 		<config-description-ref uri="thing-type:tailwind:config"/>
 	</thing-type>
 
