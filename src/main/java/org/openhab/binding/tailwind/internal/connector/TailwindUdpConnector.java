@@ -18,6 +18,7 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.SocketException;
 import java.net.UnknownHostException;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
@@ -177,7 +178,7 @@ public class TailwindUdpConnector {
                 receiveFailures = 0; // message successfully received, unset failure counter
                 // log & notify listener in new thread (so that listener loop continues immediately)
                 executorService.execute(() -> {
-                    final String message = new String(data);
+                    final String message = new String(data, StandardCharsets.UTF_8);
                     if (logger.isDebugEnabled()) {
                         logger.debug("Received data on port {}: {}", socket2.getLocalPort(), message);
                     }

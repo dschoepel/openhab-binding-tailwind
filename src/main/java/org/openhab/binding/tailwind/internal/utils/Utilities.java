@@ -22,6 +22,7 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Locale;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.tailwind.internal.TailwindModel;
@@ -65,7 +66,7 @@ public class Utilities {
      * @return Converted string
      */
     public String makeFirstLetterUpperCase(String name) {
-        String str1 = name.substring(0, 1).toUpperCase();
+        String str1 = name.substring(0, 1).toUpperCase(Locale.ROOT);
         String str2 = name.substring(1);
         String result = str1 + str2;
         return result;
