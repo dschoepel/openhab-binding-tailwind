@@ -7,18 +7,20 @@
   <parent>
     <groupId>org.openhab.addons.bundles</groupId>
     <artifactId>org.openhab.addons.reactor.bundles</artifactId>
-    <version>4.2.3</version>
+    <version>5.2.0</version>
     <relativePath/>
   </parent>
 
   <artifactId>org.openhab.binding.tailwind</artifactId>
-  <version>4.2.3</version>
+  <version>5.2.0</version>
 
   <name>openHAB Add-ons :: Bundles :: TailWind Binding</name>
 
   <properties>
     <!-- Standalone build: the parent normally finds these files in the openhab-addons checkout -->
     <basedirRoot>${project.basedir}</basedirRoot>
+    <!-- markdownlint needs openhab-addons' .github/markdownlint.yaml; off until the README is reworked -->
+    <markdownlint.skip>true</markdownlint.skip>
   </properties>
 
   <!-- The openHAB parent POM and core artifacts are not on Maven Central -->
