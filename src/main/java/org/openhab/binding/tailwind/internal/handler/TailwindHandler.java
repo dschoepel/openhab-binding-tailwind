@@ -39,6 +39,7 @@ import org.openhab.binding.tailwind.internal.state.TailwindState;
 import org.openhab.binding.tailwind.internal.state.TailwindStateChangedListener;
 import org.openhab.binding.tailwind.internal.utils.Utilities;
 import org.openhab.core.config.core.Configuration;
+import org.openhab.core.library.types.OnOffType;
 import org.openhab.core.thing.Channel;
 import org.openhab.core.thing.ChannelUID;
 import org.openhab.core.thing.Thing;
@@ -152,6 +153,19 @@ public class TailwindHandler extends BaseThingHandler
                         } else {
                             if (logger.isDebugEnabled()) {
                                 logger.debug("Error updating LED brightness: {}, detail: {}", response.getResult(),
+                                        response.getInfo());
+                            }
+                        }
+                        break;
+                    case CHANNEL_SERVER_MONITOR:
+                        boolean enable = OnOffType.ON.equals(command);
+                        cmdBody = buildSetServerMonitorCommand(enable);
+                        response = tailwindApi.getTailwindControllerData(thing, config.getAuthToken(), cmdBody);
+                        if (response.getResult().contentEquals(JSON_RESPONSE_RESULT_OK)) {
+                            tailwindState.setServerMonitor(enable);
+                        } else {
+                            if (logger.isDebugEnabled()) {
+                                logger.debug("Error updating server monitoring: {}, detail: {}", response.getResult(),
                                         response.getInfo());
                             }
                         }
@@ -800,6 +814,9 @@ public class TailwindHandler extends BaseThingHandler
             case CHANNEL_FIRMWARE_VERSION:
                 tailwindState.setFirmwareVersion(channelState.getFwVer());
                 break;
+            case CHANNEL_SERVER_MONITOR:
+                tailwindState.setServerMonitor(channelState.getServerMonitor());
+                break;
             default:
                 break;
         } // Switch/case on controller channels
@@ -1009,6 +1026,13 @@ public class TailwindHandler extends BaseThingHandler
         cmdToSetLEDBrightness.getJSONObject(TAILWIND_JSON_KEY_DATA).getJSONObject(TAILWIND_JSON_KEY_VALUE)
                 .put(TAILWIND_JSON_KEY_BRIGHTNESS, command);
         return cmdToSetLEDBrightness.toString();
+    }
+
+    private String buildSetServerMonitorCommand(boolean enable) {
+        JSONObject cmdToSetServerMonitor = new JSONObject(TAILWIND_CMD_SET_SERVER_MONITOR);
+        cmdToSetServerMonitor.getJSONObject(TAILWIND_JSON_KEY_DATA).getJSONObject(TAILWIND_JSON_KEY_VALUE)
+                .put(TAILWIND_JSON_KEY_ENABLE, enable);
+        return cmdToSetServerMonitor.toString();
     }
 
     private Long getPartialOpenValue(Integer doorIndex) {

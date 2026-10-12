@@ -15,7 +15,9 @@ package org.openhab.binding.tailwind.internal.state;
 import static org.openhab.binding.tailwind.internal.TailwindBindingConstants.*;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
+import org.eclipse.jdt.annotation.Nullable;
 import org.openhab.core.library.types.DecimalType;
+import org.openhab.core.library.types.OnOffType;
 import org.openhab.core.library.types.PercentType;
 import org.openhab.core.library.types.StringType;
 import org.openhab.core.types.State;
@@ -42,6 +44,7 @@ public class TailwindState {
     private State deviceID = StringType.EMPTY;
     private State firmwareVersion = StringType.EMPTY;
     private State supportCommand = StringType.valueOf(TAILWIND_JSON_VALUE_NAME_IDENTIFY);
+    private State serverMonitor = UnDefType.UNDEF;
 
     // ----- Door One Specific Channels -----
     private State doorOneIndex = DecimalType.valueOf("99");
@@ -113,6 +116,8 @@ public class TailwindState {
                 return firmwareVersion;
             case CHANNEL_SUPPORT_COMMAND:
                 return supportCommand;
+            case CHANNEL_SERVER_MONITOR:
+                return serverMonitor;
             /**
              * Door One Channels
              */
@@ -265,6 +270,20 @@ public class TailwindState {
             this.supportCommand = newVal;
             handler.stateChanged(CHANNEL_SUPPORT_COMMAND, this.supportCommand);
         } // If firmwareVersion changed
+    }
+
+    /**
+     * Method to set the server connection monitoring state for the TailWind controller
+     *
+     * @param serverMonitor - true when the controller reboots itself after losing its cloud connection,
+     *            null when the firmware does not report it (before 10.61)
+     */
+    public void setServerMonitor(@Nullable Boolean serverMonitor) {
+        State newVal = serverMonitor == null ? UnDefType.UNDEF : OnOffType.from(serverMonitor);
+        if (!newVal.equals(this.serverMonitor)) {
+            this.serverMonitor = newVal;
+            handler.stateChanged(CHANNEL_SERVER_MONITOR, this.serverMonitor);
+        } // If serverMonitor changed
     }
 
     /**

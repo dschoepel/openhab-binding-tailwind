@@ -84,6 +84,7 @@ public class TailwindBindingConstants {
     public static final String CHANNEL_DEVICE_ID = "controller#deviceID";
     public static final String CHANNEL_FIRMWARE_VERSION = "controller#firmwareVersion";
     public static final String CHANNEL_SUPPORT_COMMAND = "controller#supportCommand";
+    public static final String CHANNEL_SERVER_MONITOR = "controller#serverMonitor";
     public static final String PARAMETER_DOOR_NUM_CONNECTED = "numberOfDoorsConnected";
 
     // Channel Group Door One Controls
@@ -269,6 +270,7 @@ public class TailwindBindingConstants {
     public static final String TAILWIND_JSON_VALUE_NAME_STATUS_LED = "status_led";
     public static final String TAILWIND_JSON_VALUE_NAME_IDENTIFY = "identify";
     public static final String TAILWIND_JSON_VALUE_NAME_REBOOT = "reboot";
+    public static final String TAILWIND_JSON_VALUE_NAME_SERVER_MONITOR = "server_monitor";
     public static final String TAILWIND_JSON_VALUE_NAME_PROTO_HTTP = "http";
     public static final String TAILWIND_JSON_VALUE_NAME_PROTPO_UDP = "udp";
     public static final int TAILWIND_JSON_VALUE_ENABLE_ON = 1;
@@ -284,5 +286,6 @@ public class TailwindBindingConstants {
     public static final String TAILWIND_CMD_DOOR_OPEN_OR_CLOSE = "{\"product\": \"iQ3\",\"version\": \"0.1\",\"data\": {\"type\": \"set\",\"name\": \"door_op\",\"value\": {\"door_idx\": 0,\"cmd\": \"open\",}}}";
     public static final String TAILWIND_CMD_SET_LED_BRIGHTNESS = "{\"product\": \"iQ3\",\"version\": \"0.1\",\"data\": {\"type\": \"set\",\"name\": \"status_led\",\"value\": {\"brightness\": 100}}}";
     public static final String TAILWIND_CMD_IDENTIFY_DEVICE = "{\"product\": \"iQ3\",\"version\": \"0.2\",\"data\": {\"type\": \"set\",\"name\": \"identify\"}}";
+    public static final String TAILWIND_CMD_SET_SERVER_MONITOR = "{\"product\": \"iQ3\",\"version\": \"0.2\",\"data\": {\"type\": \"set\",\"name\": \"server_monitor\",\"value\": {\"enable\": true}}}";
     public static final String TAILWIND_CMD_REBOOT_DEVICE = "{\"product\": \"iQ3\",\"version\": \"0.2\",\"data\": {\"type\": \"set\",\"name\": \"reboot\"}}";
 }
