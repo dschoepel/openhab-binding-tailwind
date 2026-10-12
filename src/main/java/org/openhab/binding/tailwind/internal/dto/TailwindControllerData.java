@@ -176,8 +176,7 @@ public class TailwindControllerData implements Serializable {
     public String toString() {
         return "ControllerData [result=" + result + ", info=" + info + ", product=" + product + ", devId=" + devId
                 + ", protoVer=" + protoVer + ", doorNum=" + doorNum + ", nightModeEn=" + nightModeEn + ", fwVer="
-                + fwVer + ", ledBrightness=" + ledBrightness + ", routerRssi=" + routerRssi
-                + ", serverMonitor=" + serverMonitor + ", data=" + data
-                + ", notify=" + notify + "]";
+                + fwVer + ", ledBrightness=" + ledBrightness + ", routerRssi=" + routerRssi + ", serverMonitor="
+                + serverMonitor + ", data=" + data + ", notify=" + notify + "]";
     }
 }
