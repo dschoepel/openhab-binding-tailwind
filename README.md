@@ -14,6 +14,25 @@ OpenHab linked channels will be updated regardless of whether the Tailwind's web
 
 Details for connecting to the controller's API server can be found on TailWind's GitHub site here: [Tailwind Local Control API](https://github.com/Scott--R/Tailwind_Local_Control_API)
 
+## Versions and Installation
+
+This binding lives in its own repository and is built for two openHAB lines:
+
+| openHAB | Branch | Release tags | Java to build |
+|---------|--------|--------------|---------------|
+| 5.x     | `main` | `v5.x.y`     | 21            |
+| 4.x     | `4.x`  | `v4.x.y`     | 17            |
+
+To install, download the jar for your openHAB version from the
+[Releases](https://github.com/dschoepel/openhab-binding-tailwind/releases) page and copy it
+into your openHAB `addons` folder (for example `/usr/share/openhab/addons/`). If you installed
+the binding from the Marketplace, uninstall it there first, and remove any older
+`org.openhab.binding.tailwind` jar from the `addons` folder. Existing Things and Items keep
+working, because the binding id (`tailwind`) has not changed.
+
+To build it yourself, check out the branch for your openHAB version and run
+`mvn clean install` with the matching JDK. The jar is written to `target/`.
+
 ## Testing
 
 #### TailWind iQ3:
