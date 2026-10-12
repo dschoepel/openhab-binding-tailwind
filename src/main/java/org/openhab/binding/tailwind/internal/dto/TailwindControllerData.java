@@ -59,6 +59,9 @@ public class TailwindControllerData implements Serializable {
     @SerializedName("router_rssi")
     private long routerRssi; // Wi-Fi signal strength
 
+    @SerializedName("server_monitor")
+    private Boolean serverMonitor; // Server connection monitoring enabled (firmware 10.61+, null on older firmware)
+
     @SerializedName("data")
     private TailwindDoorData data; // Object with door status details (door1, door2, door3)
 
@@ -145,6 +148,14 @@ public class TailwindControllerData implements Serializable {
         this.routerRssi = value;
     }
 
+    public Boolean getServerMonitor() {
+        return serverMonitor;
+    }
+
+    public void setServerMonitor(Boolean value) {
+        this.serverMonitor = value;
+    }
+
     public TailwindDoorData getDoorData() {
         return data;
     }
@@ -165,7 +176,7 @@ public class TailwindControllerData implements Serializable {
     public String toString() {
         return "ControllerData [result=" + result + ", info=" + info + ", product=" + product + ", devId=" + devId
                 + ", protoVer=" + protoVer + ", doorNum=" + doorNum + ", nightModeEn=" + nightModeEn + ", fwVer="
-                + fwVer + ", ledBrightness=" + ledBrightness + ", routerRssi=" + routerRssi + ", data=" + data
-                + ", notify=" + notify + "]";
+                + fwVer + ", ledBrightness=" + ledBrightness + ", routerRssi=" + routerRssi + ", serverMonitor="
+                + serverMonitor + ", data=" + data + ", notify=" + notify + "]";
     }
 }

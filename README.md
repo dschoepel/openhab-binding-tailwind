@@ -92,6 +92,8 @@ TailWind Thing channels are listed by channel group (group name preceeds channel
 | <b>Advanced</b>         |
 | Model Number\*          | controller#productID        | String    |     R      | TailWind device model number                                                                                                                                                                                                                                        |
 | Device ID\*             | controller#deviceID         | String    |     R      | TailWind device ID (MAC address). Format is unique to how TailWind stores this. Each number pair is sepated by an underscore, if first digit of pair is zero (0) it is not included. For example address AA:0B:0C:D0:E0:F0 would be represented as aa_b_c_d0_e0_f0. |
+| Firmware Version\*      | controller#firmwareVersion  | String    |     R      | Firmware version reported by the controller. |
+| Server Monitoring\*     | controller#serverMonitor    | Switch    |     RW     | ON: the controller reboots itself when it loses its connection to the TailWind cloud server. OFF: it stays up without internet access. Requires firmware 10.61 or later; UNDEF on older firmware. |
 | Send Support Commands\* | controller#supportCommand   | String    |     RW     | Infrequently used support commands. Values: 'reboot' = reboot the controller device, 'blink' = identify the controller device by flashing white light three times.                                                                                                  |
 
 > Note: Starred <b>\*</b> items are hidden unless "Show advanced" checked on UI
