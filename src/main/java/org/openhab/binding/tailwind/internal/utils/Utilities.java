@@ -1,5 +1,5 @@
-/**
- * Copyright (c) 2010-2024 Contributors to the openHAB project
+/*
+ * Copyright (c) 2010-2026 Contributors to the openHAB project
  *
  * See the NOTICE file(s) distributed with this work for additional
  * information.
@@ -22,6 +22,7 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Locale;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.tailwind.internal.TailwindModel;
@@ -65,7 +66,7 @@ public class Utilities {
      * @return Converted string
      */
     public String makeFirstLetterUpperCase(String name) {
-        String str1 = name.substring(0, 1).toUpperCase();
+        String str1 = name.substring(0, 1).toUpperCase(Locale.ROOT);
         String str2 = name.substring(1);
         String result = str1 + str2;
         return result;
