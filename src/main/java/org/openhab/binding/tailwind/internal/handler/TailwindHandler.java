@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -298,6 +299,10 @@ public class TailwindHandler extends BaseThingHandler
             // when done do:
             if (thingReachable) {
                 updateStatus(ThingStatus.ONLINE);
+                // Set channel states (door status, etc.) from the status read during the configuration check
+                if (JSON_RESPONSE_RESULT_OK.equals(response.getResult())) {
+                    updateTailwindDetails(response);
+                }
             } else {
                 updateStatus(ThingStatus.OFFLINE);
             }
@@ -441,24 +446,16 @@ public class TailwindHandler extends BaseThingHandler
         } else {
             // Get property details from response and update if there are changes
             Map<String, String> properties = new HashMap<String, String>(thing.getProperties());
-            String currentMacAddress = properties.get(TAILWIND_PROPERTY_MAC_ADDRESS);
-            if (currentMacAddress != null) {
-                if (currentMacAddress.isBlank() || currentMacAddress.contains("000000000000")
-                        || !currentMacAddress.equals(utilities.convertDeviceIdToMac(response.getDevID()))) {
-                    properties.put(TAILWIND_PROPERTY_MAC_ADDRESS, utilities.convertDeviceIdToMac(response.getDevID()));
-                }
+            // Things defined in files may not have these properties yet, so set them when missing too
+            String macAddress = utilities.convertDeviceIdToMac(response.getDevID());
+            if (!macAddress.equals(properties.get(TAILWIND_PROPERTY_MAC_ADDRESS))) {
+                properties.put(TAILWIND_PROPERTY_MAC_ADDRESS, macAddress);
             } // If MAC address sent from controller is not equal to what is stored in properties
-            String currentSftwrVer = properties.get(TAILWIND_PROPERTY_SOFTWARE_VERSION);
-            if (currentSftwrVer != null) {
-                if (currentSftwrVer.isBlank() || !currentSftwrVer.equals(response.getFwVer())) {
-                    properties.put(TAILWIND_PROPERTY_SOFTWARE_VERSION, response.getFwVer());
-                }
-            } // If software address sent from controller is not equal to what is stored in properties
-            String currentModelId = properties.get(TAILWIND_PROPERTY_MODEL_ID);
-            if (currentModelId != null) {
-                if (currentModelId.isBlank() || !currentModelId.equals(response.getProduct())) {
-                    properties.put(TAILWIND_PROPERTY_MODEL_ID, response.getProduct());
-                }
+            if (!response.getFwVer().equals(properties.get(TAILWIND_PROPERTY_SOFTWARE_VERSION))) {
+                properties.put(TAILWIND_PROPERTY_SOFTWARE_VERSION, response.getFwVer());
+            } // If software version sent from controller is not equal to what is stored in properties
+            if (!response.getProduct().equals(properties.get(TAILWIND_PROPERTY_MODEL_ID))) {
+                properties.put(TAILWIND_PROPERTY_MODEL_ID, response.getProduct());
             } // If model number sent from controller is not equal to what is stored in properties
 
             thing.setProperties(properties);
@@ -508,52 +505,73 @@ public class TailwindHandler extends BaseThingHandler
         } // If duplicate doorName was found
 
         /*
-         * No configuration errors found, refresh the states for any items linked to channels
+         * No configuration errors found. Channel states are set from the last status response in initialize(),
+         * once the door channels exist and the thing is online. Updates sent before then are dropped.
          */
-        updateTailwindDetails(sendCommand(TAILWIND_CMD_DEVICE_STATUS));
         return true;
     }
 
+    /**
+     * Make sure the httpServerUrl property, which the API uses to build its URL, matches the webServerAddress
+     * configuration setting.
+     * <ul>
+     * <li>Discovered things already have the property. When webServerAddress is blank, it is filled from it.</li>
+     * <li>Things defined in files or created by hand may not have the property. It is set from webServerAddress.</li>
+     * <li>An http:// or https:// prefix and a trailing /json or / in webServerAddress are ignored.</li>
+     * </ul>
+     *
+     * @return blank when the address is usable, otherwise a short error description
+     */
     private String webServerAddressCheck() {
-        String addressCheckResult = "";
         Configuration tailwindConfiguration = editConfiguration();
-        String serverAddress = (String) tailwindConfiguration.get(TAILWIND_CONFIG_WEB_SERVER_ADDRESSS_KEY);
-        Map<String, String> properties = new HashMap<String, String>(thing.getProperties());
-        String httpServerUrl = properties.get(TAILWIND_HTTP_SERVER_URL);
-        // Check for both blank configuration and properties values
-        if (httpServerUrl != null) {
-            // Check for blank webServerAddress, replace with httpServerUrl
-            if (serverAddress.isBlank()) {
-                if (!httpServerUrl.isBlank()) {
-                    tailwindConfiguration.put(TAILWIND_CONFIG_WEB_SERVER_ADDRESSS_KEY,
-                            properties.get(TAILWIND_HTTP_SERVER_URL));
-                    updateConfiguration(tailwindConfiguration);
-                } else {
-                    // Error: Both serverAddress and httpServerUrl are blank
-                    addressCheckResult = "BLANK";
-                } // If httlServerUrl has a value (not blank)
-            } else {
-                // Check to see if the two are different
-                if (!serverAddress.equalsIgnoreCase(httpServerUrl)) {
-                    if (!serverAddress.isBlank()) {
-                        // Validate Server address can be an IP address or Url (ends in .local)
-                        if (Utilities.isValidIPAddress(serverAddress) || serverAddress.contains(".local")) {
-                            // Valid address to try
-                            properties.put(TAILWIND_HTTP_SERVER_URL, serverAddress);
-                            thing.setProperties(properties);
-                        } else {
-                            // Error address is not formatted correctly
-                            addressCheckResult = "ADDRESS FORMAT ERROR";
-                        }
-                    } else {
-                        // Error Server address was not entered yet.
-                        addressCheckResult = "BLANK";
-                    }
-                } // If serverAddress is not equal to httpServerUrl
-            } // If serverAddress is blank
-        }
+        Object configValue = tailwindConfiguration.get(TAILWIND_CONFIG_WEB_SERVER_ADDRESSS_KEY);
+        String configAddress = configValue == null ? "" : configValue.toString();
+        String serverAddress = normalizeServerAddress(configAddress);
+        String httpServerUrl = thing.getProperties().get(TAILWIND_HTTP_SERVER_URL);
 
-        return addressCheckResult;
+        if (serverAddress.isBlank()) {
+            if (httpServerUrl == null || httpServerUrl.isBlank()) {
+                // Error: Both serverAddress and httpServerUrl are blank
+                return "BLANK";
+            }
+            // Discovered thing without a configured address, copy the discovered one into the configuration
+            tailwindConfiguration.put(TAILWIND_CONFIG_WEB_SERVER_ADDRESSS_KEY, httpServerUrl);
+            updateConfiguration(tailwindConfiguration);
+            return "";
+        }
+        if (!Utilities.isValidIPAddress(serverAddress) && !serverAddress.contains(".local")) {
+            // Server address must be an IP address or a host name ending in .local
+            return "ADDRESS FORMAT ERROR";
+        }
+        // Set the property used by the API when it is missing or different. The configuration is left as
+        // entered, since things defined in files cannot have their configuration updated.
+        if (!serverAddress.equalsIgnoreCase(httpServerUrl)) {
+            thing.setProperty(TAILWIND_HTTP_SERVER_URL, serverAddress);
+        }
+        return "";
+    }
+
+    /**
+     * Remove an http:// or https:// prefix and a trailing /json or / from a web server address.
+     *
+     * @param address - address as entered in the configuration
+     * @return bare IP address or host name
+     */
+    private String normalizeServerAddress(String address) {
+        String result = address.trim();
+        String lower = result.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("http://")) {
+            result = result.substring(7);
+        } else if (lower.startsWith("https://")) {
+            result = result.substring(8);
+        }
+        if (result.toLowerCase(Locale.ROOT).endsWith("/json")) {
+            result = result.substring(0, result.length() - 5);
+        }
+        while (result.endsWith("/")) {
+            result = result.substring(0, result.length() - 1);
+        }
+        return result;
     }
 
     /**
