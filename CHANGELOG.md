@@ -8,6 +8,11 @@
 - MAC address, firmware version and model properties are filled in for Things defined in files.
 - Door and controller channels are set from the controller's status at startup, so items no longer
   show an old door state until the next UDP event.
+- A rejected authorization token is reported as a token problem, not as an unreachable controller.
+- The Thing stays OFFLINE when its configuration check fails, instead of going ONLINE anyway.
+- Fixed a null-result error that logged an ERROR for every linked item when the controller
+  rejected a request.
+- The Thing comes back ONLINE by itself after a temporary communication error.
 
 ## 5.2.0 - 2026-10-12
 
