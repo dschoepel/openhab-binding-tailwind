@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Things defined in `.things` files now connect. The `httpServerUrl` property is set from
+  `webServerAddress` when it is missing, instead of leaving the controller URL host null.
+- `webServerAddress` accepts an `http://` or `https://` prefix (and a trailing `/json`).
+- MAC address, firmware version and model properties are filled in for Things defined in files.
+- Door and controller channels are set from the controller's status at startup, so items no longer
+  show an old door state until the next UDP event.
+
 ## 5.2.0 - 2026-10-12
 
 - Builds against openHAB 5.2.0 (Java 21).
