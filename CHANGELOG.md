@@ -14,6 +14,10 @@
   rejected a request.
 - The Thing comes back ONLINE by itself after a temporary communication error.
 - Door Partial Open items no longer briefly change to 0 each time the Thing starts.
+- The Thing connects to the controller in the background, so openHAB no longer warns that
+  initializing the handler takes more than 5000ms.
+- If the controller can't be reached when the Thing starts (for example after a power cut), the binding
+  keeps trying: after 30s, 60s, 120s, 240s, then every 5 minutes, and goes ONLINE when it answers.
 
 ## 5.2.0 - 2026-10-12
 
