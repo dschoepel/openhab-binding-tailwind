@@ -13,6 +13,7 @@
 - Fixed a null-result error that logged an ERROR for every linked item when the controller
   rejected a request.
 - The Thing comes back ONLINE by itself after a temporary communication error.
+- Door Partial Open items no longer briefly change to 0 each time the Thing starts.
 
 ## 5.2.0 - 2026-10-12
 

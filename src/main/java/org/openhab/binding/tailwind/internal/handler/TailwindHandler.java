@@ -78,6 +78,8 @@ public class TailwindHandler extends BaseThingHandler
     private int updateStateFailures = 0;
     private Gson gson = new Gson();
     private @Nullable ScheduledFuture<?> requestControllerStatusJob;
+    // True when the last sendCommand() request failed and already set a specific OFFLINE status
+    private boolean lastRequestStatusSet = false;
 
     /**
      * Constructor for TailWind Device Handler
@@ -249,10 +251,10 @@ public class TailwindHandler extends BaseThingHandler
         if (logger.isDebugEnabled()) {
             logger.debug("Start initializing handler for thing {}", getThing().getUID());
         }
-        // Initialize partialOpenDoorStates
-        initializePartialOpenStates();
         // Get configuration settings
         config = getConfigAs(TailwindConfiguration.class);
+        // Initialize partialOpenDoorStates from the configuration, so linked items don't briefly change to 0
+        initializePartialOpenStates();
         // Validate configuration settings
         try {
             if (!checkConfiguration(config)) {
@@ -412,8 +414,11 @@ public class TailwindHandler extends BaseThingHandler
 
             /* Use response from OK device status set initial states for this thing */
             if (!isResultOk(response)) {
-                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
-                        "Unable to verify authorization token. Please check that the Token and Web Address were entered correctly. If web address is ok, obtain another token from the web app (web.gotailwind.com) and try again.");
+                // Keep the more specific status set by sendCommand(), if any
+                if (!lastRequestStatusSet) {
+                    updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
+                            "Unable to verify authorization token. Please check that the Token and Web Address were entered correctly. If web address is ok, obtain another token from the web app (web.gotailwind.com) and try again.");
+                }
                 return false;
             } else {
                 // Update thing properties to include number of doors connected
@@ -447,8 +452,11 @@ public class TailwindHandler extends BaseThingHandler
          */
         response = sendCommand(TAILWIND_CMD_DEVICE_STATUS);
         if (!isResultOk(response)) {
-            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
-                    "The authorization token was invalid. Please check that the Token was entered correctly or obtain another one from the mobile app.");
+            // Keep the more specific status set by sendCommand(), if any
+            if (!lastRequestStatusSet) {
+                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
+                        "The authorization token was invalid. Please check that the Token was entered correctly or obtain another one from the mobile app.");
+            }
             if (logger.isDebugEnabled()) {
                 logger.debug("Command to set status report URL failed with result code: {}", response.getResult());
             }
@@ -593,10 +601,12 @@ public class TailwindHandler extends BaseThingHandler
     private TailwindControllerData sendCommand(String commandString) {
         JSONObject tailwindCommandString = new JSONObject(commandString);
         String body = tailwindCommandString.toString();
+        lastRequestStatusSet = false;
         try {
             response = tailwindApi.getTailwindControllerData(thing, config.authToken, body);
         } catch (TailwindCommunicationException e) {
             // Error trying to connect to the TailWind controller possible configuration settings changes needed
+            lastRequestStatusSet = true;
             String errorMsg = String.valueOf(e.getMessage());
             logger.warn("There was an error communicating to the TailWind controller! Error msg: {}", errorMsg);
             if (errorMsg.toLowerCase(Locale.ROOT).contains("token")) {
@@ -1113,8 +1123,8 @@ public class TailwindHandler extends BaseThingHandler
     }
 
     private void initializePartialOpenStates() {
-        for (int doorIndex = 0; doorIndex <= 2; doorIndex++) {
-            tailwindState.setPartialOpen(doorIndex, 0);
-        }
+        tailwindState.setPartialOpen(0, config.getDoorOnePartialOpen());
+        tailwindState.setPartialOpen(1, config.getDoorTwoPartialOpen());
+        tailwindState.setPartialOpen(2, config.getDoorThreePartialOpen());
     }
 }
