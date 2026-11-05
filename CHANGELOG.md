@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.2.4 - 2026-11-05
 
 - Things defined in `.things` files now connect. The `httpServerUrl` property is set from
   `webServerAddress` when it is missing, instead of leaving the controller URL host null.
