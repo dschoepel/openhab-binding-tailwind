@@ -80,6 +80,13 @@ public class TailwindHandler extends BaseThingHandler
     private @Nullable ScheduledFuture<?> requestControllerStatusJob;
     // True when the last sendCommand() request failed and already set a specific OFFLINE status
     private boolean lastRequestStatusSet = false;
+    // Background start-up: first attempt and retries while the controller can't be reached
+    private static final int INIT_RETRY_MIN_SECONDS = 30;
+    private static final int INIT_RETRY_MAX_SECONDS = 300;
+    private @Nullable ScheduledFuture<?> initJob;
+    private int retryDelaySeconds = INIT_RETRY_MIN_SECONDS;
+    private volatile boolean disposed = false;
+    private final Object startUpLock = new Object();
 
     /**
      * Constructor for TailWind Device Handler
@@ -255,21 +262,28 @@ public class TailwindHandler extends BaseThingHandler
         config = getConfigAs(TailwindConfiguration.class);
         // Initialize partialOpenDoorStates from the configuration, so linked items don't briefly change to 0
         initializePartialOpenStates();
-        // Validate configuration settings
+        disposed = false;
+        retryDelaySeconds = INIT_RETRY_MIN_SECONDS;
+        updateStatus(ThingStatus.UNKNOWN);
+        // Contact the controller in the background, so openHAB's startup thread isn't blocked
+        cancelInitJob();
+        initJob = scheduler.schedule(this::startUp, 0, TimeUnit.SECONDS);
+    } // End initialize()
+
+    /**
+     * Validate the configuration with the controller and start the status job and UDP listener.
+     * When the controller can't be reached, try again later with an increasing delay. Configuration
+     * errors are not retried, since they need a change by the user (which restarts the handler).
+     */
+    private void startUp() {
+        boolean configOk;
         try {
-            if (!checkConfiguration(config)) {
-                return;
-            } else {
-                if (logger.isDebugEnabled()) {
-                    logger.info("tailwind:TailwindHandler using configuration: {}", config.toString());
-                }
-            }
+            configOk = checkConfiguration(config);
         } catch (TailwindCommunicationException e) {
-            // Error requesting state details from the TailWind controller
             logger.warn("There was an error communicating to the TailWind controller! Error msg: {}", e.getMessage());
             updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
                     "Error communicating to the TailWind controller: " + e.getMessage());
-            return;
+            configOk = false;
         } catch (Exception e) {
             // Error Catch all for any unknown errors
             logger.warn(
@@ -278,7 +292,30 @@ public class TailwindHandler extends BaseThingHandler
             updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
                     "Unexpected error validating the configuration: " + e.getMessage());
             return;
+        }
+        // Hold the lock while scheduling, so dispose() can't run part way through and leave jobs behind
+        synchronized (startUpLock) {
+            if (disposed) {
+                return;
+            }
+            if (configOk) {
+                startJobs();
+            } else if (ThingStatusDetail.COMMUNICATION_ERROR.equals(getThing().getStatusInfo().getStatusDetail())) {
+                logger.info("TailWind controller for {} is not reachable, trying again in {} seconds.", thing.getUID(),
+                        retryDelaySeconds);
+                initJob = scheduler.schedule(this::startUp, retryDelaySeconds, TimeUnit.SECONDS);
+                retryDelaySeconds = Math.min(retryDelaySeconds * 2, INIT_RETRY_MAX_SECONDS);
+            }
+        }
+    } // End startUp()
 
+    /**
+     * Configuration was validated: set up door channels, start the status job and UDP listener, go online
+     * and set channel states from the status read during the configuration check.
+     */
+    private void startJobs() {
+        if (logger.isDebugEnabled()) {
+            logger.debug("tailwind:TailwindHandler using configuration: {}", config.toString());
         }
 
         /* Set up number of garage doors specified for this thing in the configuration */
@@ -304,22 +341,20 @@ public class TailwindHandler extends BaseThingHandler
         /* Schedule job to listen for UDP messages from the TailWind controller */
         scheduler.execute(this::initializeConnection);
 
-        updateStatus(ThingStatus.UNKNOWN);
+        updateStatus(ThingStatus.ONLINE);
+        // Set channel states (door status, etc.) from the status read during the configuration check
+        if (isResultOk(response)) {
+            updateTailwindDetails(response);
+        }
+    } // End startJobs()
 
-        scheduler.execute(() -> {
-            boolean thingReachable = true; // <background task with long running initialization here>
-            // when done do:
-            if (thingReachable) {
-                updateStatus(ThingStatus.ONLINE);
-                // Set channel states (door status, etc.) from the status read during the configuration check
-                if (isResultOk(response)) {
-                    updateTailwindDetails(response);
-                }
-            } else {
-                updateStatus(ThingStatus.OFFLINE);
-            }
-        });
-    } // End initialize()
+    private void cancelInitJob() {
+        ScheduledFuture<?> job = initJob;
+        if (job != null) {
+            job.cancel(false);
+            initJob = null;
+        }
+    }
 
     /**
      * Initialize the UPD connection that listens for status updates from the TailWind controller
@@ -660,6 +695,10 @@ public class TailwindHandler extends BaseThingHandler
     public void dispose() {
         if (logger.isDebugEnabled()) {
             logger.debug("Disposing handler for thing {}", getThing().getUID());
+        }
+        synchronized (startUpLock) {
+            disposed = true;
+            cancelInitJob();
         }
         cancelControllerStatusJob();
         final TailwindUdpConnector connector = udpConnector;
