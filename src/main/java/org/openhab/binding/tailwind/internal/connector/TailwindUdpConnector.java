@@ -275,7 +275,7 @@ public class TailwindUdpConnector {
             logger.warn("There was an error communicating to the TailWind controller! Error msg: {}", e.getMessage());
         } // Send command to TailWind controller
 
-        if (!response.getResult().contentEquals(JSON_RESPONSE_RESULT_OK)) {
+        if (!JSON_RESPONSE_RESULT_OK.equals(response.getResult())) {
             logger.warn("Set status report request failed with result: {}", response.getResult());
         } else {
             logger.debug("Command sent to TailWind controller succeeded: {}!", commandString);

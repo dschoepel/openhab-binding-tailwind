@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- Things defined in `.things` files now connect. The `httpServerUrl` property is set from
+  `webServerAddress` when it is missing, instead of leaving the controller URL host null.
+- `webServerAddress` accepts an `http://` or `https://` prefix (and a trailing `/json`).
+- MAC address, firmware version and model properties are filled in for Things defined in files.
+- Door and controller channels are set from the controller's status at startup, so items no longer
+  show an old door state until the next UDP event.
+- A rejected authorization token is reported as a token problem, not as an unreachable controller.
+- The Thing stays OFFLINE when its configuration check fails, instead of going ONLINE anyway.
+- Fixed a null-result error that logged an ERROR for every linked item when the controller
+  rejected a request.
+- The Thing comes back ONLINE by itself after a temporary communication error.
+- Door Partial Open items no longer briefly change to 0 each time the Thing starts.
+- The Thing connects to the controller in the background, so openHAB no longer warns that
+  initializing the handler takes more than 5000ms.
+- If the controller can't be reached when the Thing starts (for example after a power cut), the binding
+  keeps trying: after 30s, 60s, 120s, 240s, then every 5 minutes, and goes ONLINE when it answers.
+
 ## 4.2.3 - 2026-10-12
 
 - Moved out of the openhab-addons fork (branch `tailwind`) into this repository,

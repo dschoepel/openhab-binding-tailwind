@@ -43,7 +43,8 @@
 
 		<parameter name="webServerAddress" type="text" required="true" groupName="connectionSettings">
 			<label>API Web Server Address/URL</label>
-			<description>TailWind web service address. Either HTTP URL of web service (preferred) or IP address of controller.</description>
+			<description>IP address or host name of the TailWind controller, for example 192.168.1.50 or
+				tailwind-aa0b0cd0e0f0.local. An http:// prefix is accepted and removed.</description>
 			<required></required>
 			<default></default>
 		</parameter>

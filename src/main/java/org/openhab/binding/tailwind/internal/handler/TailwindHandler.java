@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -77,6 +78,15 @@ public class TailwindHandler extends BaseThingHandler
     private int updateStateFailures = 0;
     private Gson gson = new Gson();
     private @Nullable ScheduledFuture<?> requestControllerStatusJob;
+    // True when the last sendCommand() request failed and already set a specific OFFLINE status
+    private boolean lastRequestStatusSet = false;
+    // Background start-up: first attempt and retries while the controller can't be reached
+    private static final int INIT_RETRY_MIN_SECONDS = 30;
+    private static final int INIT_RETRY_MAX_SECONDS = 300;
+    private @Nullable ScheduledFuture<?> initJob;
+    private int retryDelaySeconds = INIT_RETRY_MIN_SECONDS;
+    private volatile boolean disposed = false;
+    private final Object startUpLock = new Object();
 
     /**
      * Constructor for TailWind Device Handler
@@ -96,7 +106,11 @@ public class TailwindHandler extends BaseThingHandler
             logger.debug("Channel Id: {}, linked: {}, state: {}", channel, isLinked(channel),
                     tailwindState.getStateForChannelID(channel));
         }
-        updateTailwindDetails(sendCommand(TAILWIND_CMD_DEVICE_STATUS));
+        // Only ask the controller for an update when the thing is online, to avoid an error for every link
+        // while the configuration is wrong
+        if (ThingStatus.ONLINE.equals(getThing().getStatus())) {
+            refreshChannels();
+        }
         State state = tailwindState.getStateForChannelID(channel);
         updateState(channel, state);
     }
@@ -115,7 +129,7 @@ public class TailwindHandler extends BaseThingHandler
         if (command instanceof RefreshType) {
             String channel = channelUID.getId();
             logger.debug("Channel Id: {}, linked: {}", channel, isLinked(channel));
-            updateTailwindDetails(sendCommand(TAILWIND_CMD_DEVICE_STATUS));
+            refreshChannels();
         } else {
             //
             try {
@@ -127,7 +141,7 @@ public class TailwindHandler extends BaseThingHandler
                     case CHANNEL_LED_BRIGHTNESS:
                         cmdBody = buildSetLEDBrightnessCommand(Integer.parseInt(command.toString()));
                         response = tailwindApi.getTailwindControllerData(thing, config.getAuthToken(), cmdBody);
-                        if (response.getResult().contentEquals(JSON_RESPONSE_RESULT_OK)) {
+                        if (isResultOk(response)) {
                             tailwindState.setLedBrighness(Integer.parseInt(command.toString()));
                         } else {
                             if (logger.isDebugEnabled()) {
@@ -147,7 +161,7 @@ public class TailwindHandler extends BaseThingHandler
                                 break;
                         }
                         response = tailwindApi.getTailwindControllerData(thing, config.getAuthToken(), cmdBody);
-                        if (response.getResult().contentEquals(JSON_RESPONSE_RESULT_OK)) {
+                        if (isResultOk(response)) {
                             tailwindState.setSupportCommand(command.toString());
                             ;
                         } else {
@@ -161,7 +175,7 @@ public class TailwindHandler extends BaseThingHandler
                         boolean enable = OnOffType.ON.equals(command);
                         cmdBody = buildSetServerMonitorCommand(enable);
                         response = tailwindApi.getTailwindControllerData(thing, config.getAuthToken(), cmdBody);
-                        if (response.getResult().contentEquals(JSON_RESPONSE_RESULT_OK)) {
+                        if (isResultOk(response)) {
                             tailwindState.setServerMonitor(enable);
                         } else {
                             if (logger.isDebugEnabled()) {
@@ -244,28 +258,64 @@ public class TailwindHandler extends BaseThingHandler
         if (logger.isDebugEnabled()) {
             logger.debug("Start initializing handler for thing {}", getThing().getUID());
         }
-        // Initialize partialOpenDoorStates
-        initializePartialOpenStates();
         // Get configuration settings
         config = getConfigAs(TailwindConfiguration.class);
-        // Validate configuration settings
+        // Initialize partialOpenDoorStates from the configuration, so linked items don't briefly change to 0
+        initializePartialOpenStates();
+        disposed = false;
+        retryDelaySeconds = INIT_RETRY_MIN_SECONDS;
+        updateStatus(ThingStatus.UNKNOWN);
+        // Contact the controller in the background, so openHAB's startup thread isn't blocked
+        cancelInitJob();
+        initJob = scheduler.schedule(this::startUp, 0, TimeUnit.SECONDS);
+    } // End initialize()
+
+    /**
+     * Validate the configuration with the controller and start the status job and UDP listener.
+     * When the controller can't be reached, try again later with an increasing delay. Configuration
+     * errors are not retried, since they need a change by the user (which restarts the handler).
+     */
+    private void startUp() {
+        boolean configOk;
         try {
-            if (!checkConfiguration(config)) {
-                return;
-            } else {
-                if (logger.isDebugEnabled()) {
-                    logger.info("tailwind:TailwindHandler using configuration: {}", config.toString());
-                }
-            }
+            configOk = checkConfiguration(config);
         } catch (TailwindCommunicationException e) {
-            // Error requesting state details from the TailWind controller
             logger.warn("There was an error communicating to the TailWind controller! Error msg: {}", e.getMessage());
+            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
+                    "Error communicating to the TailWind controller: " + e.getMessage());
+            configOk = false;
         } catch (Exception e) {
             // Error Catch all for any unknown errors
             logger.warn(
                     "There was an unknown exception validating the configuration for the TailWind controller! Error msg: {}",
-                    e.getMessage());
+                    e.getMessage(), e);
+            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
+                    "Unexpected error validating the configuration: " + e.getMessage());
+            return;
+        }
+        // Hold the lock while scheduling, so dispose() can't run part way through and leave jobs behind
+        synchronized (startUpLock) {
+            if (disposed) {
+                return;
+            }
+            if (configOk) {
+                startJobs();
+            } else if (ThingStatusDetail.COMMUNICATION_ERROR.equals(getThing().getStatusInfo().getStatusDetail())) {
+                logger.info("TailWind controller for {} is not reachable, trying again in {} seconds.", thing.getUID(),
+                        retryDelaySeconds);
+                initJob = scheduler.schedule(this::startUp, retryDelaySeconds, TimeUnit.SECONDS);
+                retryDelaySeconds = Math.min(retryDelaySeconds * 2, INIT_RETRY_MAX_SECONDS);
+            }
+        }
+    } // End startUp()
 
+    /**
+     * Configuration was validated: set up door channels, start the status job and UDP listener, go online
+     * and set channel states from the status read during the configuration check.
+     */
+    private void startJobs() {
+        if (logger.isDebugEnabled()) {
+            logger.debug("tailwind:TailwindHandler using configuration: {}", config.toString());
         }
 
         /* Set up number of garage doors specified for this thing in the configuration */
@@ -279,7 +329,7 @@ public class TailwindHandler extends BaseThingHandler
             requestControllerStatusJob = scheduler.scheduleWithFixedDelay(() -> {
                 Thread.currentThread().setName("OH-binding-" + this.thing.getUID() + "-requestControllerStatusJob");
                 try {
-                    updateTailwindDetails(sendCommand(TAILWIND_CMD_DEVICE_STATUS));
+                    refreshChannels();
                 } catch (Exception e) {
                     if (logger.isDebugEnabled()) {
                         logger.debug("Error starting job to refresh controller status: {}", e.getMessage());
@@ -291,18 +341,20 @@ public class TailwindHandler extends BaseThingHandler
         /* Schedule job to listen for UDP messages from the TailWind controller */
         scheduler.execute(this::initializeConnection);
 
-        updateStatus(ThingStatus.UNKNOWN);
+        updateStatus(ThingStatus.ONLINE);
+        // Set channel states (door status, etc.) from the status read during the configuration check
+        if (isResultOk(response)) {
+            updateTailwindDetails(response);
+        }
+    } // End startJobs()
 
-        scheduler.execute(() -> {
-            boolean thingReachable = true; // <background task with long running initialization here>
-            // when done do:
-            if (thingReachable) {
-                updateStatus(ThingStatus.ONLINE);
-            } else {
-                updateStatus(ThingStatus.OFFLINE);
-            }
-        });
-    } // End initialize()
+    private void cancelInitJob() {
+        ScheduledFuture<?> job = initJob;
+        if (job != null) {
+            job.cancel(false);
+            initJob = null;
+        }
+    }
 
     /**
      * Initialize the UPD connection that listens for status updates from the TailWind controller
@@ -396,9 +448,12 @@ public class TailwindHandler extends BaseThingHandler
             response = sendCommand(TAILWIND_CMD_DEVICE_STATUS);
 
             /* Use response from OK device status set initial states for this thing */
-            if (!response.getResult().contentEquals(JSON_RESPONSE_RESULT_OK)) {
-                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
-                        "Unable to verify authorization token. Please check that the Token and Web Address were entered correctly. If web address is ok, obtain another token from the web app (web.gotailwind.com) and try again.");
+            if (!isResultOk(response)) {
+                // Keep the more specific status set by sendCommand(), if any
+                if (!lastRequestStatusSet) {
+                    updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
+                            "Unable to verify authorization token. Please check that the Token and Web Address were entered correctly. If web address is ok, obtain another token from the web app (web.gotailwind.com) and try again.");
+                }
                 return false;
             } else {
                 // Update thing properties to include number of doors connected
@@ -431,9 +486,12 @@ public class TailwindHandler extends BaseThingHandler
          * created.
          */
         response = sendCommand(TAILWIND_CMD_DEVICE_STATUS);
-        if (!response.getResult().contentEquals(JSON_RESPONSE_RESULT_OK)) {
-            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
-                    "The authorization token was invalid. Please check that the Token was entered correctly or obtain another one from the mobile app.");
+        if (!isResultOk(response)) {
+            // Keep the more specific status set by sendCommand(), if any
+            if (!lastRequestStatusSet) {
+                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
+                        "The authorization token was invalid. Please check that the Token was entered correctly or obtain another one from the mobile app.");
+            }
             if (logger.isDebugEnabled()) {
                 logger.debug("Command to set status report URL failed with result code: {}", response.getResult());
             }
@@ -441,24 +499,16 @@ public class TailwindHandler extends BaseThingHandler
         } else {
             // Get property details from response and update if there are changes
             Map<String, String> properties = new HashMap<String, String>(thing.getProperties());
-            String currentMacAddress = properties.get(TAILWIND_PROPERTY_MAC_ADDRESS);
-            if (currentMacAddress != null) {
-                if (currentMacAddress.isBlank() || currentMacAddress.contains("000000000000")
-                        || !currentMacAddress.equals(utilities.convertDeviceIdToMac(response.getDevID()))) {
-                    properties.put(TAILWIND_PROPERTY_MAC_ADDRESS, utilities.convertDeviceIdToMac(response.getDevID()));
-                }
+            // Things defined in files may not have these properties yet, so set them when missing too
+            String macAddress = utilities.convertDeviceIdToMac(response.getDevID());
+            if (!macAddress.equals(properties.get(TAILWIND_PROPERTY_MAC_ADDRESS))) {
+                properties.put(TAILWIND_PROPERTY_MAC_ADDRESS, macAddress);
             } // If MAC address sent from controller is not equal to what is stored in properties
-            String currentSftwrVer = properties.get(TAILWIND_PROPERTY_SOFTWARE_VERSION);
-            if (currentSftwrVer != null) {
-                if (currentSftwrVer.isBlank() || !currentSftwrVer.equals(response.getFwVer())) {
-                    properties.put(TAILWIND_PROPERTY_SOFTWARE_VERSION, response.getFwVer());
-                }
-            } // If software address sent from controller is not equal to what is stored in properties
-            String currentModelId = properties.get(TAILWIND_PROPERTY_MODEL_ID);
-            if (currentModelId != null) {
-                if (currentModelId.isBlank() || !currentModelId.equals(response.getProduct())) {
-                    properties.put(TAILWIND_PROPERTY_MODEL_ID, response.getProduct());
-                }
+            if (!response.getFwVer().equals(properties.get(TAILWIND_PROPERTY_SOFTWARE_VERSION))) {
+                properties.put(TAILWIND_PROPERTY_SOFTWARE_VERSION, response.getFwVer());
+            } // If software version sent from controller is not equal to what is stored in properties
+            if (!response.getProduct().equals(properties.get(TAILWIND_PROPERTY_MODEL_ID))) {
+                properties.put(TAILWIND_PROPERTY_MODEL_ID, response.getProduct());
             } // If model number sent from controller is not equal to what is stored in properties
 
             thing.setProperties(properties);
@@ -508,52 +558,73 @@ public class TailwindHandler extends BaseThingHandler
         } // If duplicate doorName was found
 
         /*
-         * No configuration errors found, refresh the states for any items linked to channels
+         * No configuration errors found. Channel states are set from the last status response in initialize(),
+         * once the door channels exist and the thing is online. Updates sent before then are dropped.
          */
-        updateTailwindDetails(sendCommand(TAILWIND_CMD_DEVICE_STATUS));
         return true;
     }
 
+    /**
+     * Make sure the httpServerUrl property, which the API uses to build its URL, matches the webServerAddress
+     * configuration setting.
+     * <ul>
+     * <li>Discovered things already have the property. When webServerAddress is blank, it is filled from it.</li>
+     * <li>Things defined in files or created by hand may not have the property. It is set from webServerAddress.</li>
+     * <li>An http:// or https:// prefix and a trailing /json or / in webServerAddress are ignored.</li>
+     * </ul>
+     *
+     * @return blank when the address is usable, otherwise a short error description
+     */
     private String webServerAddressCheck() {
-        String addressCheckResult = "";
         Configuration tailwindConfiguration = editConfiguration();
-        String serverAddress = (String) tailwindConfiguration.get(TAILWIND_CONFIG_WEB_SERVER_ADDRESSS_KEY);
-        Map<String, String> properties = new HashMap<String, String>(thing.getProperties());
-        String httpServerUrl = properties.get(TAILWIND_HTTP_SERVER_URL);
-        // Check for both blank configuration and properties values
-        if (httpServerUrl != null) {
-            // Check for blank webServerAddress, replace with httpServerUrl
-            if (serverAddress.isBlank()) {
-                if (!httpServerUrl.isBlank()) {
-                    tailwindConfiguration.put(TAILWIND_CONFIG_WEB_SERVER_ADDRESSS_KEY,
-                            properties.get(TAILWIND_HTTP_SERVER_URL));
-                    updateConfiguration(tailwindConfiguration);
-                } else {
-                    // Error: Both serverAddress and httpServerUrl are blank
-                    addressCheckResult = "BLANK";
-                } // If httlServerUrl has a value (not blank)
-            } else {
-                // Check to see if the two are different
-                if (!serverAddress.equalsIgnoreCase(httpServerUrl)) {
-                    if (!serverAddress.isBlank()) {
-                        // Validate Server address can be an IP address or Url (ends in .local)
-                        if (Utilities.isValidIPAddress(serverAddress) || serverAddress.contains(".local")) {
-                            // Valid address to try
-                            properties.put(TAILWIND_HTTP_SERVER_URL, serverAddress);
-                            thing.setProperties(properties);
-                        } else {
-                            // Error address is not formatted correctly
-                            addressCheckResult = "ADDRESS FORMAT ERROR";
-                        }
-                    } else {
-                        // Error Server address was not entered yet.
-                        addressCheckResult = "BLANK";
-                    }
-                } // If serverAddress is not equal to httpServerUrl
-            } // If serverAddress is blank
-        }
+        Object configValue = tailwindConfiguration.get(TAILWIND_CONFIG_WEB_SERVER_ADDRESSS_KEY);
+        String configAddress = configValue == null ? "" : configValue.toString();
+        String serverAddress = normalizeServerAddress(configAddress);
+        String httpServerUrl = thing.getProperties().get(TAILWIND_HTTP_SERVER_URL);
 
-        return addressCheckResult;
+        if (serverAddress.isBlank()) {
+            if (httpServerUrl == null || httpServerUrl.isBlank()) {
+                // Error: Both serverAddress and httpServerUrl are blank
+                return "BLANK";
+            }
+            // Discovered thing without a configured address, copy the discovered one into the configuration
+            tailwindConfiguration.put(TAILWIND_CONFIG_WEB_SERVER_ADDRESSS_KEY, httpServerUrl);
+            updateConfiguration(tailwindConfiguration);
+            return "";
+        }
+        if (!Utilities.isValidIPAddress(serverAddress) && !serverAddress.contains(".local")) {
+            // Server address must be an IP address or a host name ending in .local
+            return "ADDRESS FORMAT ERROR";
+        }
+        // Set the property used by the API when it is missing or different. The configuration is left as
+        // entered, since things defined in files cannot have their configuration updated.
+        if (!serverAddress.equalsIgnoreCase(httpServerUrl)) {
+            thing.setProperty(TAILWIND_HTTP_SERVER_URL, serverAddress);
+        }
+        return "";
+    }
+
+    /**
+     * Remove an http:// or https:// prefix and a trailing /json or / from a web server address.
+     *
+     * @param address - address as entered in the configuration
+     * @return bare IP address or host name
+     */
+    private String normalizeServerAddress(String address) {
+        String result = address.trim();
+        String lower = result.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("http://")) {
+            result = result.substring(7);
+        } else if (lower.startsWith("https://")) {
+            result = result.substring(8);
+        }
+        if (result.toLowerCase(Locale.ROOT).endsWith("/json")) {
+            result = result.substring(0, result.length() - 5);
+        }
+        while (result.endsWith("/")) {
+            result = result.substring(0, result.length() - 1);
+        }
+        return result;
     }
 
     /**
@@ -565,18 +636,53 @@ public class TailwindHandler extends BaseThingHandler
     private TailwindControllerData sendCommand(String commandString) {
         JSONObject tailwindCommandString = new JSONObject(commandString);
         String body = tailwindCommandString.toString();
+        lastRequestStatusSet = false;
         try {
             response = tailwindApi.getTailwindControllerData(thing, config.authToken, body);
         } catch (TailwindCommunicationException e) {
             // Error trying to connect to the TailWind controller possible configuration settings changes needed
-            logger.warn("There was an error communicating to the TailWind controller! Error msg: {}", e.getMessage());
-            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
-                    "The TailWind controller did not respond to configured URL/Host address. Please ensure URL/Host address is correct.");
+            lastRequestStatusSet = true;
+            String errorMsg = String.valueOf(e.getMessage());
+            logger.warn("There was an error communicating to the TailWind controller! Error msg: {}", errorMsg);
+            if (errorMsg.toLowerCase(Locale.ROOT).contains("token")) {
+                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
+                        "The TailWind controller rejected the authorization token. Please check the token, or obtain another one from the web app (web.gotailwind.com).");
+            } else {
+                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
+                        "The TailWind controller did not respond to configured URL/Host address. Please ensure URL/Host address is correct.");
+            }
+            // Return a failed response so callers never see a stale or empty result
+            TailwindControllerData failed = new TailwindControllerData();
+            failed.setResult("Fail");
+            response = failed;
         }
-        if (!response.getResult().contentEquals(JSON_RESPONSE_RESULT_OK)) {
+        if (!isResultOk(response)) {
             logger.debug("Get Status request failed with result: {}", response.getResult());
         }
         return response;
+    }
+
+    /**
+     * @param data - response from the TailWind controller
+     * @return true when the controller answered with result "OK"
+     */
+    private static boolean isResultOk(TailwindControllerData data) {
+        return JSON_RESPONSE_RESULT_OK.equals(data.getResult());
+    }
+
+    /**
+     * Request the controller status and update linked channels. Channels are left as they are when the request
+     * fails, since a failed response has no door data.
+     */
+    private void refreshChannels() {
+        TailwindControllerData status = sendCommand(TAILWIND_CMD_DEVICE_STATUS);
+        if (isResultOk(status)) {
+            // Come back online after a temporary communication error
+            if (ThingStatusDetail.COMMUNICATION_ERROR.equals(getThing().getStatusInfo().getStatusDetail())) {
+                updateStatus(ThingStatus.ONLINE);
+            }
+            updateTailwindDetails(status);
+        }
     }
 
     /**
@@ -589,6 +695,10 @@ public class TailwindHandler extends BaseThingHandler
     public void dispose() {
         if (logger.isDebugEnabled()) {
             logger.debug("Disposing handler for thing {}", getThing().getUID());
+        }
+        synchronized (startUpLock) {
+            disposed = true;
+            cancelInitJob();
         }
         cancelControllerStatusJob();
         final TailwindUdpConnector connector = udpConnector;
@@ -1052,8 +1162,8 @@ public class TailwindHandler extends BaseThingHandler
     }
 
     private void initializePartialOpenStates() {
-        for (int doorIndex = 0; doorIndex <= 2; doorIndex++) {
-            tailwindState.setPartialOpen(doorIndex, 0);
-        }
+        tailwindState.setPartialOpen(0, config.getDoorOnePartialOpen());
+        tailwindState.setPartialOpen(1, config.getDoorTwoPartialOpen());
+        tailwindState.setPartialOpen(2, config.getDoorThreePartialOpen());
     }
 }
